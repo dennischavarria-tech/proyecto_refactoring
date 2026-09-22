@@ -1,0 +1,634 @@
+================================================================================
+ANALISIS FASE 1 - PROYECTO REFACTORING
+Fecha: 2026-09-17
+Analista: Software Architect Senior (automated)
+================================================================================
+
+
+================================================================================
+1. RESUMEN EJECUTIVO
+================================================================================
+
+El proyecto consiste en una aplicacion CLI de peliculas y series en Python.
+Total de archivos: 116 archivos .py (19,122 lineas de codigo).
+
+PROBLEMAS CRITICOS DETECTADOS:
+- 88 archivos *_config.py que NO son importados por ningun modulo (codigo muerto)
+- 25 archivos *_manager.py completamente aislados (sin dependencias cruzadas)
+- 1 wildcard import (from api_movies import *) en main.py
+- 27 bare except en el codigo
+- 0 funciones con type hints en todo el proyecto
+- API keys hardcodeadas en codigo fuente
+- Duplicacion masiva entre api_movies.py, app.py, main.py y utils.py
+- Variables globales mutables en todos los modulos
+- Efectos secundarios al importar (init/load al nivel de modulo)
+
+SEVERIDAD GLOBAL: ALTA
+El proyecto requiere refactorizacion urgente antes de cualquier nueva funcionalidad.
+
+
+================================================================================
+2. VARIABLES GLOBALES ENCONTRADAS
+================================================================================
+
+--- api_movies.py ---
+  Linea 5:  API_KEY_OMDB = "trilogy"                    # API key hardcodeada
+  Linea 6:  API_KEY_TMDB = ""                           # Vacio (no usado)
+  Linea 7:  BASE_URL_OMDB = "http://www.omdbapi.com/"   # URL hardcoded
+  Linea 8:  BASE_URL_TMDB = "https://api.themoviedb.org/3/"  # URL hardcoded
+  Linea 9:  BASE_URL_TVMAZE = "http://api.tvmaze.com"   # URL hardcoded
+  Linea 12: USUARIO_LOGUEADO = None                     # Estado de sesion
+  Linea 13: PELICULAS_FAVORITAS = []                    # Lista mutable global
+  Linea 14: HISTORIAL_BUSQUEDAS = []                    # Lista mutable global
+  Linea 15: CACHE_PELICULAS = {}                        # Cache mutable global
+  Linea 16: CACHE_SERIES = {}                           # Cache mutable global
+  Linea 17: CONFIG = {"debug": True, "verbose": True,   # Config mutable global
+            "timeout": 30, "max_retries": 3}
+
+  Total: 11 variables globales (2 API keys, 3 URLs, 6 estado mutable)
+
+--- main.py ---
+  No define variables globales propias.
+  Sin embargo, via "from api_movies import *" (linea 7), importa TODAS las
+  globales de api_movies.py al namespace de main.py:
+    - API_KEY_OMDB, API_KEY_TMDB, BASE_URL_OMDB, BASE_URL_TMDB, BASE_URL_TVMAZE
+    - USUARIO_LOGUEADO, PELICULAS_FAVORITAS, HISTORIAL_BUSQUEDAS
+    - CACHE_PELICULAS, CACHE_SERIES, CONFIG
+    - Todas las funciones de api_movies.py
+
+  Adicionalmente, main.py modifica CONFIG directamente (lineas 260-272),
+  lo cual es un efecto secundario peligroso via wildcard import.
+
+--- app.py (modulo legacy duplicado) ---
+  Linea 9:  API_KEY = "trilogy"                         # API key hardcodeada
+  Linea 10: OMDB_BASE_URL = "http://www.omdbapi.com/"   # URL hardcoded
+  Linea 11: TVMAZE_BASE_URL = "http://api.tvmaze.com"   # URL hardcoded
+  Linea 12: CACHE = {}                                  # Cache mutable global
+  Linea 13: USUARIO_ACTUAL = None                       # Estado de sesion
+  Linea 14: PELICULAS_FAVORITAS = []                    # Lista mutable global
+  Linea 15: HISTORIAL = []                              # Lista mutable global
+
+  Total: 7 variables globales
+
+--- utils.py ---
+  Linea 8:  RESULTS_DIR = "results"
+  Linea 9:  EXPORT_DIR = "exports"
+
+  Total: 2 variables globales
+
+--- logger.py ---
+  Linea 7:  LOG_FILE = "app.log"
+  Linea 8:  LOG_LEVEL = "DEBUG"
+  Linea 9:  LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
+  Total: 3 variables globales
+
+--- Todos los *_manager.py (25 archivos) ---
+  Cada archivo define 2-4 variables globales mutables (dicts, listas).
+  Patron comun:
+    - *_FILE o *_DIR (string constante)
+    - *_data o lista mutable (estado en memoria)
+  Ejemplos:
+    data_manager.py:      DATA_DIR, BACKUP_DIR, DATA_FILE, BACKUP_FILE
+    cache_manager.py:     CACHE_DIR, CACHE_EXPIRY, cache_data
+    config_manager.py:    CONFIG_FILE, DEFAULT_CONFIG, current_config
+    user_manager.py:      USER_FILE, current_user, users
+    state_manager.py:     STATE_FILE, DEFAULT_STATE, app_state
+    favorites_manager.py: FAVORITES_FILE, favorites
+    history_manager.py:   HISTORY_DIR, HISTORY_FILE, MAX_HISTORY, search_history
+
+--- Todos los *_config.py (88 archivos) ---
+  Cada archivo define 2 variables globales:
+    - <nombre>_CONFIG_FILE (string con nombre de archivo JSON)
+    - <nombre>_config (dict mutable)
+  Ejemplos:
+    api_cache_config.py:  API_CACHE_CONFIG_FILE, api_cache_config
+    security_config.py:   SECURITY_CONFIG_FILE, security_config
+    email_config.py:      EMAIL_CONFIG_FILE, email_config
+
+RESUMEN: Se identificaron 200+ variables globales en todo el proyecto.
+
+
+================================================================================
+3. MAPA DE DEPENDENCIAS
+================================================================================
+
+--- 3.1 Importaciones directas entre modulos del proyecto ---
+
+  main.py --> api_movies.py (via "from api_movies import *")
+
+  NO EXISTEN OTRAS IMPORTACIONES ENTRE MODULOS DEL PROYECTO.
+
+  Los siguientes modulos son completamente independientes (islas de codigo):
+    - app.py (no importado por nadie, duplicado de main.py + api_movies.py)
+    - utils.py (no importado por nadie)
+    - logger.py (no importado por nadie)
+    - Los 25 *_manager.py (ninguno importado por nadie)
+    - Los 88 *_config.py (ninguno importado por nadie)
+
+--- 3.2 Dependencias circulares ---
+
+  NINGUNA. No hay dependencias circulares porque practicamente no hay
+  importaciones entre modulos del proyecto.
+
+--- 3.3 Imports innecesarios ---
+
+  main.py:
+    - import random (linea 4): NUNCA se usa random.* en main.py
+    - import time (linea 3): solo usado via delay() de api_movies
+
+  app.py:
+    - import random (linea 6): NUNCA se usa random.* en app.py
+
+  utils.py:
+    - import sys (linea 2): NUNCA se usa sys.* en utils.py
+    - import random (linea 4): solo usado en generate_random_id()
+
+  Todos los 88 *_config.py:
+    - import time: NUNCA se usa time.* en ningun config file
+
+  Todos los 25 *_manager.py:
+    - import time: NUNCA se usa time.* en la mayoria (solo en timestamps)
+
+--- 3.4 Wildcard imports ---
+
+  main.py linea 7: from api_movies import *
+    Importa: 11 variables globales + 15 funciones
+    Riesgo: Contaminacion del namespace, shadowing accidental,
+            imposible saber que se importa sin leer api_movies.py
+
+
+================================================================================
+4. DUPLICACION DE CODIGO
+================================================================================
+
+--- 4.1 Funciones duplicadas entre modulos ---
+
+  FUNCION                    | api_movies | app.py | main.py | utils.py
+  ---------------------------+------------+--------+---------+----------
+  clear_screen()             |     -      |   Si   |   Si    |   Si
+  print_separator()          |     -      |   Si*  |   Si    |   Si
+  print_header(text)         |     -      |   Si   |   Si    |   Si
+  delay(seconds)             |     -      |   Si   |   Si    |   Si
+  mostrar_pelicula(p)        |     -      |   Si   |   Si    |   Si**
+  mostrar_serie(s)           |     -      |   Si   |   Si    |   Si**
+  mostrar_lista_peliculas(l) |     -      |   Si   |   Si    |   Si**
+  hacer_request()            |     Si     |   Si*  |    -    |    -
+  buscar_pelicula()          |     Si     |   Si*  |    -    |    -
+  buscar_series()            |     Si     |   Si*  |    -    |    -
+  obtener_peliculas_populares|     Si     |   Si   |    -    |    -
+  menu_principal()           |     -      |   Si   |   Si    |    -
+
+  *  = Version ligeramente diferente
+  ** = utils.py tiene format_movie_display(), format_series_display(),
+       format_list_display() que son equivalentes
+
+--- 4.2 Bloques de codigo repetidos ---
+
+  a) Patron try/except para acceso a diccionarios:
+     - main.py lineas 35-78: 9 bloques try/except identicos
+     - utils.py lineas 66-119: 10 bloques try/except identicos
+     Patron: try: print(clave["campo"]) except: print("N/A")
+
+  b) Patron de iteracion con while + contador manual:
+     - main.py lineas 100-108, 159-163, 199-202, 220-223
+     - app.py lineas 114-117, 178-180, 200-204, 228-230, 238-241
+     Patron: i = 0; while i < len(lista): ... i += 1
+     (Deberia ser un for loop)
+
+  c) Patron load/save JSON:
+     - Replicado en los 25 *_manager.py y los 88 *_config.py
+     Cada archivo tiene:
+       def load_*():
+           if os.path.exists(FILE):
+               with open(FILE, 'r') as f:
+                   data = json.load(f)
+       def save_*():
+           with open(FILE, 'w') as f:
+               json.dump(data, f, indent=4)
+
+  d) Lista hardcoded de peliculas populares:
+     - api_movies.py lineas 84-90
+     - app.py lineas 79-86
+     Contenido identico: Shawshank, Godfather, Dark Knight, Pulp Fiction, Forrest Gump
+
+  e) Patron de backup/restore:
+     - Replicado en los 25 *_manager.py y los 88 *_config.py
+     Cada uno tiene backup_*() y restore_*() con logica identica
+
+--- 4.3 Modulos duplicados completos ---
+
+  app.py = Version antigua/inconsistente de main.py + api_movies.py combinados
+  cache_manager_v2.py = Version mejorada de cache_manager.py (ambos existen)
+  config_manager_v2.py = Version mejorada de config_manager.py (ambos existen)
+
+
+================================================================================
+5. PROBLEMAS DE MANEJO DE ERRORES
+================================================================================
+
+--- 5.1 Bare except: (captura TODAS las excepciones incluyendo SystemExit) ---
+
+  main.py:
+    Linea 37:  except: (acceso a pelicula["Title"])
+    Linea 42:  except: (acceso a pelicula["Year"])
+    Linea 47:  except: (acceso a pelicula["imdbRating"])
+    Linea 52:  except: (acceso a pelicula["Genre"])
+    Linea 57:  except: (acceso a pelicula["Director"])
+    Linea 62:  except: (acceso a pelicula["Actors"])
+    Linea 67:  except: (acceso a pelicula["Plot"])
+    Linea 72:  except: (acceso a pelicula["Country"])
+    Linea 77:  except: (acceso a pelicula["Awards"])
+    Linea 253: except: (importar_de_json)
+
+  utils.py:
+    Linea 68:  except: (movie["Title"])
+    Linea 73:  except: (movie["Year"])
+    Linea 78:  except: (movie["imdbRating"])
+    Linea 83:  except: (movie["Genre"])
+    Linea 88:  except: (movie["Director"])
+    Linea 93:  except: (movie["Actors"])
+    Linea 98:  except: (movie["Plot"])
+    Linea 103: except: (movie["Language"])
+    Linea 108: except: (movie["Country"])
+    Linea 113: except: (movie["Awards"])
+    Linea 118: except: (movie["Poster"])
+    Linea 239: except: (validate_date)
+    Linea 266: except: (sort_items)
+
+  favorites_manager.py:
+    Linea 77:  except: (sort_favorites)
+    Linea 141: except: (get_favorites_stats)
+
+  log_manager.py:
+    Linea 170: except: (parse_log_line)
+    Linea 190: except: (validate_log_format)
+
+  TOTAL: 27 bare except
+
+--- 5.2 except Exception generales ---
+
+  main.py linea 332: except Exception as e: (handler global del programa)
+  app.py linea 253:  except Exception as e: (handler global del programa)
+
+  TOTAL: 2 except Exception
+
+--- 5.3 Errores ignorados ---
+
+  - api_movies.py: hacer_request() no maneja errores de red (timeout,
+    connection error, HTTP error). Si la API falla, la app crashea.
+  - api_movies.py: buscar_pelicula() retorna None sin logging
+  - api_movies.py: exportar_a_json() no maneja errores de E/S
+  - api_movies.py: importar_de_json() no valida estructura del JSON
+  - app.py: Todas las funciones de API (buscar_pelicula_omdb,
+    buscar_series_tvmaze, etc.) no manejan errores de red
+  - logger.py: log_message() no maneja errores de E/S al escribir
+  - Todos los *_manager.py: load_*() falla silenciosamente si el JSON
+    esta corrupto (except si existe, pero no except json.JSONDecodeError)
+
+--- 5.4 Manejo de errores inconsistente ---
+
+  - main.py usa bare except para acceso a diccionarios (deberia usar .get())
+  - api_movies.py NO usa try/except en absoluto (crashea ante errores)
+  - utils.py usa bare except para acceso a diccionarios (deberia usar .get())
+  - app.py usa .get() con defaults (correcto) pero no maneja errores de red
+  - Los *_manager.py tienen patrones mixtos: algunos verifican existencia
+    de archivo, otros no
+
+
+================================================================================
+6. ARCHIVOS DE CONFIGURACION (*_config.py)
+================================================================================
+
+Total de archivos *_config.py: 88
+
+--- 6.1 Estado de uso ---
+
+  NINGUNO de los 88 archivos *_config.py es importado por otro modulo.
+  TODOS son codigo muerto.
+
+  Se ejecutan al ser importados (efecto secundario: crean archivos JSON
+  en disco via load_*() al final de cada archivo), pero ninguna logica
+  del proyecto los utiliza.
+
+--- 6.2 Clasificacion ---
+
+  UTILIZADOS: 0 de 88
+  OBSOLETOS:  88 de 88 (100%)
+
+--- 6.3 Lista completa de archivos *_config.py obsoletos ---
+
+  Archivos de configuracion general (20):
+    1.  accessibility_config.py
+    2.  backup_config.py
+    3.  cache_config.py
+    4.  cache_expiry_config.py
+    5.  database_config.py
+    6.  debug_config.py
+    7.  display_config.py
+    8.  email_config.py
+    9.  language_config.py
+    10. log_config.py
+    11. maintenance_config.py
+    12. network_config.py
+    13. notification_config.py
+    14. performance_config.py
+    15. privacy_config.py
+    16. proxy_config.py
+    17. search_config.py
+    18. security_config.py
+    19. storage_config.py
+    20. theme_config.py
+    21. ui_config.py
+
+  Archivos de configuracion de API (16):
+    22. api_auth_config.py
+    23. api_bulkhead_config.py
+    24. api_caching_strategy_config.py
+    25. api_circuit_breaker_config.py
+    26. api_config.py
+    27. api_debug_config.py
+    28. api_degradation_config.py
+    29. api_error_handling_config.py
+    30. api_failover_config.py
+    31. api_logging_config.py
+    32. api_monitoring_config.py
+    33. api_performance_config.py
+    34. api_rate_limit_config.py
+    35. api_rate_limiter_config.py
+    36. api_retry_config.py
+    37. api_security_config.py
+    38. api_testing_config.py
+    39. api_timeout_config.py
+    40. api_timeout_retry_config.py
+
+  Archivos de configuracion de cache API (51):
+    41. api_cache_alerting_config.py
+    42. api_cache_analytics_config.py
+    43. api_cache_architecture_config.py
+    44. api_cache_best_practices_config.py
+    45. api_cache_cleanup_config.py
+    46. api_cache_collaboration_config.py
+    47. api_cache_compliance_config.py
+    48. api_cache_compression_config.py
+    49. api_cache_config.py
+    50. api_cache_debug_config.py
+    51. api_cache_deprecation_config.py
+    52. api_cache_deprecation_schedule_config.py
+    53. api_cache_disaster_recovery_config.py
+    54. api_cache_distribution_config.py
+    55. api_cache_documentation_config.py
+    56. api_cache_evolution_config.py
+    57. api_cache_failover_config.py
+    58. api_cache_future_config.py
+    59. api_cache_governance_config.py
+    60. api_cache_innovation_config.py
+    61. api_cache_integration_config.py
+    62. api_cache_intelligence_config.py
+    63. api_cache_invalidation_config.py
+    64. api_cache_legacy_config.py
+    65. api_cache_lifecycle_config.py
+    66. api_cache_load_testing_config.py
+    67. api_cache_mentoring_config.py
+    68. api_cache_metrics_config.py
+    69. api_cache_migration_config.py
+    70. api_cache_migration_schedule_config.py
+    71. api_cache_monitoring_config.py
+    72. api_cache_observability_config.py
+    73. api_cache_performance_config.py
+    74. api_cache_performance_testing_config.py
+    75. api_cache_preloading_config.py
+    76. api_cache_recommendations_config.py
+    77. api_cache_recovery_config.py
+    78. api_cache_reporting_config.py
+    79. api_cache_resilience_testing_config.py
+    80. api_cache_scalability_config.py
+    81. api_cache_security_config.py
+    82. api_cache_security_testing_config.py
+    83. api_cache_serialization_config.py
+    84. api_cache_stress_testing_config.py
+    85. api_cache_testing_config.py
+    86. api_cache_training_config.py
+    87. api_cache_validation_config.py
+    88. api_cache_warming_config.py
+
+--- 6.4 Referencias ---
+
+  Ningun archivo *_config.py tiene referencias externas.
+  Son auto-contenidos y auto-referenciales (se cargan a si mismos).
+
+
+================================================================================
+7. RIESGOS DETECTADOS
+================================================================================
+
+--- 7.1 Valores hardcodeados ---
+
+  API Keys:
+    - api_movies.py:5   API_KEY_OMDB = "trilogy"
+    - app.py:9          API_KEY = "trilogy"
+    - config_manager_v2.py:16  "omdb_key": "trilogy"
+
+  URLs:
+    - api_movies.py:7   BASE_URL_OMDB = "http://www.omdbapi.com/"
+    - api_movies.py:8   BASE_URL_TMDB = "https://api.themoviedb.org/3/"
+    - api_movies.py:9   BASE_URL_TVMAZE = "http://api.tvmaze.com"
+    - app.py:10         OMDB_BASE_URL = "http://www.omdbapi.com/"
+    - app.py:11         TVMAZE_BASE_URL = "http://api.tvmaze.com"
+    - config_manager_v2.py:17  "tvmaze_url": "http://api.tvmaze.com"
+
+  Rutas de directorio:
+    - utils.py:8        RESULTS_DIR = "results"
+    - utils.py:9        EXPORT_DIR = "exports"
+    - data_manager.py:7  DATA_DIR = "data"
+    - data_manager.py:8  BACKUP_DIR = "backups"
+    - cache_manager.py:8 CACHE_DIR = "cache"
+    - history_manager.py:8 HISTORY_DIR = "history"
+    - log_manager.py:8   LOG_DIR = "logs"
+    - plugin_manager.py:8 PLUGIN_DIR = "plugins"
+    - backup_manager.py:8 BACKUP_DIR = "backups"
+
+  Datos hardcodeados:
+    - api_movies.py:84-90  Lista de peliculas populares (5 peliculas)
+    - api_movies.py:94-101 Listas de peliculas por genero
+    - api_movies.py:141    "fecha": "hoy" (fecha hardcoded)
+    - config_manager.py:12 DEFAULT_CONFIG con nombre app, version, usuario
+    - settings_manager.py:10 DEFAULT_SETTINGS con tema, idioma, etc.
+
+--- 7.2 Wildcard imports ---
+
+    main.py:7  from api_movies import *
+    Riesgo: Alto. Contamina el namespace, hace imposible saber que simbolos
+    estan disponibles, dificulta el refactoring y el analisis estatico.
+
+--- 7.3 Posibles secretos o credenciales ---
+
+    - api_movies.py:5        API_KEY_OMDB = "trilogy"        # API key en claro
+    - app.py:9               API_KEY = "trilogy"             # API key en claro
+    - config_manager_v2.py   "omdb_key": "trilogy"           # API key en dict
+    - email_config.py:14     "sender_password": ""           # Campo para password
+    - proxy_config.py:15     "password": ""                  # Campo para password
+    - user_manager.py:36     Passwords almacenados sin hash  # Seguridad critica
+    - audit_manager.py:33    "ip_address": "127.0.0.1"       # IP hardcodeada
+
+--- 7.4 Funciones sin type hints ---
+
+    TOTAL: 0 funciones con type hints en todo el proyecto (19,122 lineas).
+    Las ~500+ funciones del proyecto carecen completamente de anotaciones
+    de tipo en parametros y valores de retorno.
+
+--- 7.5 Codigo muerto ---
+
+    a) app.py (255 lineas):
+       Version legacy de main.py + api_movies.py. No es importado por nadie.
+       Punto de entrada alternativo que NO se usa.
+
+    b) 88 archivos *_config.py (~13,000 lineas):
+       Ninguno es importado. Todos son codigo muerto.
+
+    c) 25 archivos *_manager.py (~4,500 lineas):
+       Ninguno es importado por main.py, app.py, api_movies.py o utils.py.
+       Son modulos completamente aislados.
+
+    d) cache_manager.py vs cache_manager_v2.py:
+       Dos versiones del mismo modulo. Ninguno es importado.
+
+    e) config_manager.py vs config_manager_v2.py:
+       Dos versiones del mismo modulo. Ninguno es importado.
+
+    f) logger.py vs log_manager.py:
+       Dos sistemas de logging. logger.py no es importado por nadie.
+
+    g) utils.py:
+       No es importado por nadie. Contiene funciones utiles que se
+       duplican en main.py y app.py.
+
+--- 7.6 Efectos secundarios al importar ---
+
+    Todos los 88 *_config.py ejecutan load_*() al importar (crean archivos
+    JSON en disco).
+
+    Todos los 25 *_manager.py ejecutan load_*() al importar.
+
+    utils.py ejecuta init_dirs() al importar (linea 278), creando
+    directorios "results" y "exports" en el sistema de archivos.
+
+    Esto significa que simplemente importar estos modulos tiene efectos
+    secundarios no deseados.
+
+--- 7.7 Bugs detectados ---
+
+    - api_degradation_config.py:21  Clave con espacio: "recovery_after successes"
+    - api_cache_governance_config.py:21-22  Claves con espacio: "cache quotas", "usage limits"
+    - api_cache_resilience_testing_config.py:61  Typo en nombre de funcion:
+      save_api_cache_resress_testing_config() (falta "il" en "resress")
+    - api_movies.py:45  URL construida por concatenacion sin encoding
+      (falla con titulos que contienen espacios o caracteres especiales)
+    - main.py:272  int(input()) sin validacion (ValueError si no es numero)
+    - user_manager.py  Passwords almacenados en texto plano (seguridad)
+
+
+================================================================================
+8. RECOMENDACIONES PARA LA FASE 2
+================================================================================
+
+--- PRIORIDAD CRITICA ---
+
+  1. ELIMINAR los 88 archivos *_config.py obsoletos.
+     No son usados, anaden complejidad y ejecutan efectos secundarios.
+     Si se necesita configuracion, usar config_manager.py o
+     config_manager_v2.py como base.
+
+  2. ELIMINAR app.py (modulo legacy duplicado).
+     Es un duplicado inconsistente de main.py + api_movies.py.
+
+  3. MOVER API keys a variables de entorno.
+     Usar os.environ.get("OMDB_API_KEY") en lugar de hardcodear.
+     Crear archivo .env con python-dotenv.
+
+  4. ELIMINAR wildcard import en main.py.
+     Reemplazar "from api_movies import *" con imports explicitos:
+       from api_movies import buscar_pelicula, buscar_series, ...
+
+--- PRIORIDAD ALTA ---
+
+  5. CONSOLIDAR duplicacion de codigo.
+     Crear un modulo presentation.py con las funciones de UI
+     (clear_screen, print_separator, print_header, delay, mostrar_*).
+     Usar utils.py como base y eliminar duplicados de main.py/app.py.
+
+  6. REEMPLAZAR 27 bare except con manejo especifico.
+     - Para acceso a diccionarios: usar dict.get("key", "N/A")
+     - Para E/S: except OSError/IOError
+     - Para JSON: except json.JSONDecodeError
+     - Para ValueError: except ValueError
+
+  7. ELIMINAR efectos secundarios al importar.
+     Mover las llamadas a init_dirs(), load_*() del nivel de modulo
+     a funciones explicitas de inicializacion.
+
+  8. AGREGAR type hints a funciones criticas.
+     Empezar con api_movies.py y main.py (los modulos activos).
+
+--- PRIORIDAD MEDIA ---
+
+  9. EVALUAR los 25 *_manager.py para determinar cuales son necesarios.
+     Muchos parecen sobre-engineering para una app CLI simple.
+     Candidatos a eliminar: plugin_manager, feature_manager,
+     permission_manager, audit_manager, notification_manager,
+     schedule_manager, report_manager, tag_manager, version_manager.
+     Candidatos a conservar: data_manager, favorites_manager,
+     history_manager, cache_manager.
+
+  10. UNIFICAR sistemas de logging.
+      Elegir entre logger.py y log_manager.py. Eliminar el otro.
+
+  11. UNIFICAR sistemas de cache.
+      Elegir entre cache_manager.py y cache_manager_v2.py. Eliminar el otro.
+
+  12. UNIFICAR sistemas de configuracion.
+      Elegir entre config_manager.py y config_manager_v2.py. Eliminar el otro.
+
+  13. REEMPLAZAR while loops manuales con for loops.
+      Los patrones "i = 0; while i < len(...)" son anti-pythonicos.
+
+  14. AGREGAR manejo de errores de red en api_movies.py.
+      Usar try/except requests.RequestException en hacer_request().
+      Agregar timeouts, retries y validacion de respuestas HTTP.
+
+--- PRIORIDAD BAJA ---
+
+  15. Crear un archivo constants.py para URLs y valores compartidos.
+  16. Separar logica de presentacion de logica de negocio en main.py.
+  17. Agregar tests unitarios basicos para las funciones de API.
+  18. Considerar usar dataclasses o Pydantic para estructuras de datos.
+  19. Reemplazar el logger custom con el modulo logging estandar de Python.
+
+
+================================================================================
+9. ESTADISTICAS DEL PROYECTO
+================================================================================
+
+  Total de archivos .py:           116
+  Total de lineas de codigo:       19,122
+  Archivos *_config.py:            88 (75.9% del total)
+  Archivos *_manager.py:           25 (21.6% del total)
+  Archivos activos (core):         3 (main.py, api_movies.py, utils.py)
+  Archivos legacy:                 1 (app.py)
+  Modulos de soporte:              1 (logger.py)
+
+  Variables globales totales:      200+
+  Bare except:                     27
+  except Exception:                2
+  Wildcard imports:                1
+  Funciones con type hints:        0
+  Funciones totales (estimadas):   500+
+  API keys hardcodeadas:           3
+  Modulos sin dependencias:        114 de 116
+
+  Lineas de codigo muerto (est.):  ~17,500 (91.5% del total)
+
+
+================================================================================
+FIN DEL ANALISIS FASE 1
+================================================================================

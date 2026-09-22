@@ -1,0 +1,15 @@
+.env
+*.log
+logs/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+data/
+backups/
+cache/
+results/
+exports/
+errors.json
+config.json
+favorites.json
