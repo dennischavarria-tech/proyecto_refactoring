@@ -41,14 +41,16 @@ class OmdbApiClient:
 
         return response.json()
 
+    def _obtener_detalle(self, titulo: str) -> Optional[Movie]:
+        self._validate_api_key()
+        params = {"t": titulo, "apikey": self._api_key}
+        data = self._make_request(self._base_url, params)
+        return Movie.from_omdb_dict(data)
+
     def buscar_pelicula(self, titulo: str) -> Optional[Movie]:
         titulo_validado = validate_movie_title(titulo)
         titulo_sanitizado = sanitize_input(titulo_validado)
-        self._validate_api_key()
-
-        params = {"t": titulo_sanitizado, "apikey": self._api_key}
-        data = self._make_request(self._base_url, params)
-        return Movie.from_omdb_dict(data)
+        return self._obtener_detalle(titulo_sanitizado)
 
     def buscar_peliculas_por_actor(self, actor: str) -> List[Movie]:
         actor_validado = validate_actor_name(actor)
@@ -64,7 +66,10 @@ class OmdbApiClient:
         search_results = data.get("Search", [])
         movies: List[Movie] = []
         for item in search_results:
-            movie = self.buscar_pelicula(item.get("Title", ""))
+            titulo = item.get("Title", "")
+            if not titulo:
+                continue
+            movie = self._obtener_detalle(titulo)
             if movie:
                 movies.append(movie)
         return movies

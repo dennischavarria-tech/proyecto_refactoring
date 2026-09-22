@@ -34,7 +34,7 @@ def validate_search_query(query: str, field_name: str = "busqueda") -> str:
     if len(query) > MAX_SEARCH_LENGTH:
         raise InvalidInputError(field_name, query, f"La busqueda no puede exceder {MAX_SEARCH_LENGTH} caracteres")
     
-    if not re.match(r'^[\w\s\-\.\,\&\']+$', query):
+    if not re.match(r"^[\w\s\-\.\,\&':!\(\)\[\]/\?]+$", query):
         raise InvalidInputError(field_name, query, "La busqueda contiene caracteres no permitidos")
     
     return query

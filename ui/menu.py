@@ -123,8 +123,7 @@ class Menu:
                 if opcion.isdigit():
                     indice = int(opcion) - 1
                     if 0 <= indice < len(movies):
-                        detalles = self._movie_service.buscar_pelicula(movies[indice].title)
-                        self._display.mostrar_pelicula(detalles)
+                        self._display.mostrar_pelicula(movies[indice])
             else:
                 print(MESSAGES["no_movies_found"])
         except InvalidInputError as e:
